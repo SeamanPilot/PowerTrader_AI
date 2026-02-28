@@ -1,5 +1,5 @@
 # PowerTrader_AI
-Fully automated crypto trading powered by a custom price prediction AI and a structured/tiered DCA system.
+Automated **stock market paper trading** powered by AI-style multi-level signals and a structured/tiered DCA system for Robinhood-style workflows.
 
 I have not checked any PowerTrader AI forks and cannot confirm or deny their legitimacy.
 
