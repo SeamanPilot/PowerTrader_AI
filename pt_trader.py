@@ -40,8 +40,10 @@ _GUI_SETTINGS_PATH = os.environ.get("POWERTRADER_GUI_SETTINGS") or os.path.join(
 
 _gui_settings_cache = {
 	"mtime": None,
-	"coins": ['BTC', 'ETH', 'XRP', 'BNB', 'DOGE'],  # fallback defaults
+	"coins": ['AAPL', 'MSFT', 'NVDA', 'AMZN', 'TSLA'],  # fallback defaults
 	"main_neural_dir": None,
+	"paper_trading": False,
+	"paper_starting_balance": 10000.0,
 	"trade_start_level": 3,
 	"start_allocation_pct": 0.005,
 	"dca_multiplier": 2.0,
@@ -90,6 +92,16 @@ def _load_gui_settings() -> dict:
 			main_neural_dir = main_neural_dir.strip() or None
 		else:
 			main_neural_dir = None
+
+		paper_trading = bool(data.get("paper_trading", _gui_settings_cache.get("paper_trading", False)))
+
+		paper_starting_balance = data.get("paper_starting_balance", _gui_settings_cache.get("paper_starting_balance", 10000.0))
+		try:
+			paper_starting_balance = float(str(paper_starting_balance).replace("$", "").replace(",", "").strip())
+		except Exception:
+			paper_starting_balance = float(_gui_settings_cache.get("paper_starting_balance", 10000.0))
+		if paper_starting_balance < 0.0:
+			paper_starting_balance = 0.0
 
 		trade_start_level = data.get("trade_start_level", _gui_settings_cache.get("trade_start_level", 3))
 		try:
@@ -166,6 +178,8 @@ def _load_gui_settings() -> dict:
 		_gui_settings_cache["mtime"] = mtime
 		_gui_settings_cache["coins"] = coins
 		_gui_settings_cache["main_neural_dir"] = main_neural_dir
+		_gui_settings_cache["paper_trading"] = paper_trading
+		_gui_settings_cache["paper_starting_balance"] = paper_starting_balance
 		_gui_settings_cache["trade_start_level"] = trade_start_level
 		_gui_settings_cache["start_allocation_pct"] = start_allocation_pct
 		_gui_settings_cache["dca_multiplier"] = dca_multiplier
@@ -181,6 +195,8 @@ def _load_gui_settings() -> dict:
 			"mtime": mtime,
 			"coins": list(coins),
 			"main_neural_dir": main_neural_dir,
+			"paper_trading": paper_trading,
+			"paper_starting_balance": paper_starting_balance,
 			"trade_start_level": trade_start_level,
 			"start_allocation_pct": start_allocation_pct,
 			"dca_multiplier": dca_multiplier,
@@ -202,33 +218,32 @@ def _load_gui_settings() -> dict:
 def _build_base_paths(main_dir_in: str, coins_in: list) -> dict:
 	"""
 	Safety rule:
-	- BTC uses main_dir directly
-	- other coins use <main_dir>/<SYM> ONLY if that folder exists
-	  (no fallback to BTC folder — avoids corrupting BTC data)
+	- Primary symbol uses main_dir directly
+	- other symbols use <main_dir>/<SYM>
 	"""
-	out = {"BTC": main_dir_in}
+	out = {}
 	try:
-		for sym in coins_in:
+		for i, sym in enumerate(coins_in):
 			sym = str(sym).strip().upper()
 			if not sym:
 				continue
-			if sym == "BTC":
-				out["BTC"] = main_dir_in
-				continue
-			sub = os.path.join(main_dir_in, sym)
-			if os.path.isdir(sub):
-				out[sym] = sub
+			if i == 0:
+				out[sym] = main_dir_in
+			else:
+				out[sym] = os.path.join(main_dir_in, sym)
 	except Exception:
 		pass
 	return out
 
 
 # Live globals (will be refreshed inside manage_trades())
-crypto_symbols = ['BTC', 'ETH', 'XRP', 'BNB', 'DOGE']
+crypto_symbols = ['AAPL', 'MSFT', 'NVDA', 'AMZN', 'TSLA']
 
 # Default main_dir behavior if settings are missing
 main_dir = os.getcwd()
-base_paths = {"BTC": main_dir}
+base_paths = {crypto_symbols[0]: main_dir}
+PAPER_TRADING = False
+PAPER_STARTING_BALANCE = 10000.0
 TRADE_START_LEVEL = 3
 START_ALLOC_PCT = 0.005
 DCA_MULTIPLIER = 2.0
@@ -251,10 +266,12 @@ def _refresh_paths_and_symbols():
 	"""
 	Hot-reload GUI settings while trader is running.
 	Updates globals: crypto_symbols, main_dir, base_paths,
+	                PAPER_TRADING, PAPER_STARTING_BALANCE,
 	                TRADE_START_LEVEL, START_ALLOC_PCT, DCA_MULTIPLIER, DCA_LEVELS, MAX_DCA_BUYS_PER_24H,
 	                TRAILING_GAP_PCT, PM_START_PCT_NO_DCA, PM_START_PCT_WITH_DCA
 	"""
 	global crypto_symbols, main_dir, base_paths
+	global PAPER_TRADING, PAPER_STARTING_BALANCE
 	global TRADE_START_LEVEL, START_ALLOC_PCT, DCA_MULTIPLIER, DCA_LEVELS, MAX_DCA_BUYS_PER_24H
 	global TRAILING_GAP_PCT, PM_START_PCT_NO_DCA, PM_START_PCT_WITH_DCA
 	global _last_settings_mtime
@@ -274,6 +291,13 @@ def _refresh_paths_and_symbols():
 
 	coins = s.get("coins") or list(crypto_symbols)
 	mndir = s.get("main_neural_dir") or main_dir
+	PAPER_TRADING = bool(s.get("paper_trading", PAPER_TRADING))
+	try:
+		PAPER_STARTING_BALANCE = float(s.get("paper_starting_balance", PAPER_STARTING_BALANCE) or PAPER_STARTING_BALANCE)
+	except Exception:
+		PAPER_STARTING_BALANCE = float(PAPER_STARTING_BALANCE)
+	if PAPER_STARTING_BALANCE < 0.0:
+		PAPER_STARTING_BALANCE = 0.0
 	TRADE_START_LEVEL = max(1, min(int(s.get("trade_start_level", TRADE_START_LEVEL) or TRADE_START_LEVEL), 7))
 	START_ALLOC_PCT = float(s.get("start_allocation_pct", START_ALLOC_PCT) or START_ALLOC_PCT)
 	if START_ALLOC_PCT < 0.0:
@@ -333,12 +357,17 @@ except Exception:
     API_KEY = ""
     BASE64_PRIVATE_KEY = ""
 
-if not API_KEY or not BASE64_PRIVATE_KEY:
+_initial_settings = _load_gui_settings()
+PAPER_TRADING = bool(_initial_settings.get("paper_trading", PAPER_TRADING))
+try:
+    PAPER_STARTING_BALANCE = float(_initial_settings.get("paper_starting_balance", PAPER_STARTING_BALANCE) or PAPER_STARTING_BALANCE)
+except Exception:
+    PAPER_STARTING_BALANCE = float(PAPER_STARTING_BALANCE)
+
+if not PAPER_TRADING:
     print(
-        "\n[PowerTrader] Robinhood API credentials not found.\n"
-        "Open the GUI and go to Settings → Robinhood API → Setup / Update.\n"
-        "That wizard will generate your keypair, tell you where to paste the public key on Robinhood,\n"
-        "and will save r_key.txt + r_secret.txt so this trader can authenticate.\n"
+        "\n[PowerTrader] Stock mode currently runs in PAPER TRADING only.\n"
+        "Enable 'Paper trading mode' in Hub Settings and restart.\n"
     )
     raise SystemExit(1)
 
@@ -347,10 +376,16 @@ class CryptoAPITrading:
         # keep a copy of the folder map (same idea as trader.py)
         self.path_map = dict(base_paths)
 
+        self.paper_trading = bool(PAPER_TRADING)
         self.api_key = API_KEY
-        private_key_seed = base64.b64decode(BASE64_PRIVATE_KEY)
-        self.private_key = SigningKey(private_key_seed)
+        self.private_key = None
+        if not self.paper_trading:
+            private_key_seed = base64.b64decode(BASE64_PRIVATE_KEY)
+            self.private_key = SigningKey(private_key_seed)
         self.base_url = "https://trading.robinhood.com"
+
+        self.paper_state_path = os.path.join(HUB_DATA_DIR, "paper_account.json")
+        self._paper_state = self._load_paper_state()
 
         self.dca_levels_triggered = {}  # Track DCA levels for each crypto
         self.dca_levels = list(DCA_LEVELS)  # Hard DCA triggers (percent PnL)
@@ -399,6 +434,173 @@ class CryptoAPITrading:
         self._dca_buy_ts = {}         # { "BTC": [ts, ts, ...] } (DCA buys only)
         self._dca_last_sell_ts = {}   # { "BTC": ts_of_last_sell }
         self._seed_dca_window_from_history()
+
+    def _load_paper_state(self) -> dict:
+        default_state = {
+            "buying_power": float(PAPER_STARTING_BALANCE),
+            "holdings": {},
+            "orders": [],
+        }
+        try:
+            if not self.paper_trading:
+                return default_state
+            if os.path.isfile(self.paper_state_path):
+                with open(self.paper_state_path, "r", encoding="utf-8") as f:
+                    raw = json.load(f) or {}
+                if isinstance(raw, dict):
+                    state = dict(default_state)
+                    state.update(raw)
+                    state["buying_power"] = float(state.get("buying_power", default_state["buying_power"]))
+                    state["holdings"] = dict(state.get("holdings", {}))
+                    state["orders"] = list(state.get("orders", []))
+                    return state
+        except Exception:
+            pass
+        return default_state
+
+    def _save_paper_state(self) -> None:
+        try:
+            if self.paper_trading:
+                self._atomic_write_json(self.paper_state_path, self._paper_state)
+        except Exception:
+            pass
+
+    def _paper_market_data(self, symbol: str) -> Optional[dict]:
+        path = f"/api/v1/crypto/marketdata/best_bid_ask/?symbol={symbol}"
+        return self.make_api_request("GET", path)
+
+    @staticmethod
+    def _base_symbol(symbol: str) -> str:
+        raw = str(symbol or "").upper().strip()
+        if "-" in raw:
+            return raw.split("-", 1)[0]
+        return raw
+
+    def _stock_bid_ask(self, symbol: str) -> tuple:
+        base = self._base_symbol(symbol)
+        try:
+            r = requests.get(f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={base}", timeout=10)
+            r.raise_for_status()
+            data = r.json() or {}
+            res = (((data.get("quoteResponse") or {}).get("result") or [None])[0]) or {}
+            ask = float(res.get("ask") or 0.0)
+            bid = float(res.get("bid") or 0.0)
+            last = float(res.get("regularMarketPrice") or 0.0)
+            if ask <= 0.0:
+                ask = last
+            if bid <= 0.0:
+                bid = last
+            if ask > 0.0 and bid > 0.0:
+                return ask, bid
+        except Exception:
+            pass
+        return 0.0, 0.0
+
+    def _paper_api_request(self, method: str, path: str, body: Optional[str] = "") -> Any:
+        method = (method or "").upper().strip()
+
+        if method == "GET" and path.startswith("/api/v1/crypto/trading/accounts/"):
+            return {"buying_power": float(self._paper_state.get("buying_power", 0.0))}
+
+        if method == "GET" and path.startswith("/api/v1/crypto/trading/holdings/"):
+            results = []
+            for asset_code, qty in self._paper_state.get("holdings", {}).items():
+                qty_f = float(qty or 0.0)
+                if qty_f <= 0.0:
+                    continue
+                results.append({
+                    "asset_code": str(asset_code).upper(),
+                    "total_quantity": f"{qty_f:.8f}",
+                    "quantity_available_for_trading": f"{qty_f:.8f}",
+                })
+            return {"results": results}
+
+        if method == "GET" and path.startswith("/api/v1/crypto/trading/orders/"):
+            symbol_filter = None
+            if "?" in path and "symbol=" in path:
+                symbol_filter = path.split("symbol=", 1)[1].split("&", 1)[0].strip().upper()
+            out = []
+            for order in self._paper_state.get("orders", []):
+                if symbol_filter and str(order.get("symbol", "")).upper() != symbol_filter:
+                    continue
+                out.append(order)
+            out.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+            return {"results": out}
+
+        if method == "GET" and path.startswith("/api/v1/crypto/marketdata/best_bid_ask/"):
+            symbol = ""
+            if "?" in path and "symbol=" in path:
+                symbol = path.split("symbol=", 1)[1].split("&", 1)[0].strip().upper()
+            ask, bid = self._stock_bid_ask(symbol)
+            if ask > 0.0 and bid > 0.0:
+                return {"results": [{"symbol": symbol, "ask_inclusive_of_buy_spread": ask, "bid_inclusive_of_sell_spread": bid}]}
+
+            cached = self._last_good_bid_ask.get(symbol, {}) if isinstance(getattr(self, "_last_good_bid_ask", {}), dict) else {}
+            ask = float(cached.get("ask", 0.0) or 0.0)
+            bid = float(cached.get("bid", 0.0) or 0.0)
+            if ask <= 0.0 and bid <= 0.0:
+                ask = bid = 1.0
+            elif ask <= 0.0:
+                ask = bid
+            elif bid <= 0.0:
+                bid = ask
+            return {"results": [{"symbol": symbol, "ask_inclusive_of_buy_spread": ask, "bid_inclusive_of_sell_spread": bid}]}
+
+        if method == "POST" and path.startswith("/api/v1/crypto/trading/orders/"):
+            try:
+                payload = json.loads(body or "{}")
+                symbol = str(payload.get("symbol", "")).upper().strip()
+                side = str(payload.get("side", "")).lower().strip()
+                qty = float(payload.get("market_order_config", {}).get("asset_quantity", 0.0) or 0.0)
+                if qty <= 0.0 or side not in ("buy", "sell"):
+                    return {"errors": [{"detail": "Invalid order payload."}]}
+
+                md = self._paper_market_data(symbol)
+                if not md or "results" not in md:
+                    return {"errors": [{"detail": "Paper market data unavailable."}]}
+                best = md["results"][0]
+                px = float(best.get("ask_inclusive_of_buy_spread" if side == "buy" else "bid_inclusive_of_sell_spread", 0.0) or 0.0)
+                if px <= 0.0:
+                    return {"errors": [{"detail": "Invalid market price for paper order."}]}
+
+                cost = qty * px
+                base = symbol.split("-")[0].upper()
+                holdings = self._paper_state.setdefault("holdings", {})
+
+                if side == "buy":
+                    bp = float(self._paper_state.get("buying_power", 0.0) or 0.0)
+                    if cost > bp:
+                        return {"errors": [{"detail": "Order amount must be less than or equal to your buying power."}]}
+                    self._paper_state["buying_power"] = bp - cost
+                    holdings[base] = float(holdings.get(base, 0.0) or 0.0) + qty
+                else:
+                    cur_qty = float(holdings.get(base, 0.0) or 0.0)
+                    if qty > cur_qty + 1e-12:
+                        return {"errors": [{"detail": "Order amount must be less than or equal to your position."}]}
+                    self._paper_state["buying_power"] = float(self._paper_state.get("buying_power", 0.0) or 0.0) + cost
+                    left = cur_qty - qty
+                    if left <= 1e-12:
+                        holdings.pop(base, None)
+                    else:
+                        holdings[base] = left
+
+                oid = str(uuid.uuid4())
+                now = datetime.datetime.now(tz=datetime.timezone.utc).isoformat()
+                order = {
+                    "id": oid,
+                    "symbol": symbol,
+                    "side": side,
+                    "state": "filled",
+                    "created_at": now,
+                    "executions": [{"quantity": f"{qty:.8f}", "effective_price": f"{px:.8f}"}],
+                }
+                self._paper_state.setdefault("orders", []).append(order)
+                self._save_paper_state()
+                return {"id": oid, "state": "filled"}
+            except Exception:
+                return {"errors": [{"detail": "Paper order failed."}]}
+
+        return None
 
 
 
@@ -831,7 +1033,7 @@ class CryptoAPITrading:
         - DCA assist: levels 4-7 map to trader DCA stages 0-3 (trade starts at level 3 => stage 0)
         """
         sym = str(symbol).upper().strip()
-        folder = base_paths.get(sym, main_dir if sym == "BTC" else os.path.join(main_dir, sym))
+        folder = base_paths.get(sym, os.path.join(main_dir, sym))
         path = os.path.join(folder, "long_dca_signal.txt")
         try:
             with open(path, "r") as f:
@@ -852,7 +1054,7 @@ class CryptoAPITrading:
         - DCA assist: levels 4-7 map to trader DCA stages 0-3 (trade starts at level 3 => stage 0)
         """
         sym = str(symbol).upper().strip()
-        folder = base_paths.get(sym, main_dir if sym == "BTC" else os.path.join(main_dir, sym))
+        folder = base_paths.get(sym, os.path.join(main_dir, sym))
         path = os.path.join(folder, "short_dca_signal.txt")
         try:
             with open(path, "r") as f:
@@ -873,7 +1075,7 @@ class CryptoAPITrading:
           N7 = 7th blue line (bottom)
         """
         sym = str(symbol).upper().strip()
-        folder = base_paths.get(sym, main_dir if sym == "BTC" else os.path.join(main_dir, sym))
+        folder = base_paths.get(sym, os.path.join(main_dir, sym))
         path = os.path.join(folder, "low_bound_prices.html")
         try:
             with open(path, "r", encoding="utf-8") as f:
@@ -1095,6 +1297,9 @@ class CryptoAPITrading:
 
 
     def make_api_request(self, method: str, path: str, body: Optional[str] = "") -> Any:
+
+        if self.paper_trading:
+            return self._paper_api_request(method, path, body)
 
         timestamp = self._get_current_timestamp()
         headers = self.get_authorization_header(method, path, body, timestamp)

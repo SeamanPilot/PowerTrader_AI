@@ -1,5 +1,68 @@
-from kucoin.client import Market
-market = Market(url='https://api.kucoin.com')
+import requests
+class Market:
+	def __init__(self, url=None):
+		self.url = url
+
+	@staticmethod
+	def _base_symbol(sym: str) -> str:
+		s = str(sym or "").upper().strip()
+		if "-" in s:
+			s = s.split("-", 1)[0]
+		return s
+
+	def get_ticker(self, symbol: str):
+		base = self._base_symbol(symbol)
+		px = 1.0
+		try:
+			r = requests.get(f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={base}", timeout=10)
+			r.raise_for_status()
+			data = r.json() or {}
+			res = (((data.get("quoteResponse") or {}).get("result") or [None])[0]) or {}
+			px = float(res.get("regularMarketPrice") or 1.0)
+		except Exception:
+			pass
+		return {"price": px, "bestAsk": px}
+
+	def get_kline(self, symbol: str, timeframe: str, startAt=None, endAt=None):
+		base = self._base_symbol(symbol)
+		interval_map = {
+			"1hour": "60m", "2hour": "60m", "4hour": "60m", "8hour": "60m", "12hour": "60m",
+			"1day": "1d", "1week": "1wk", "1min": "1m", "5min": "5m", "15min": "15m", "30min": "30m"
+		}
+		interval = interval_map.get(timeframe, "1d")
+		period = "3mo" if interval.endswith("m") else "2y"
+		hist_rows = []
+		try:
+			range_map = {"1m": "7d", "5m": "30d", "15m": "60d", "30m": "60d", "60m": "730d", "1d": "10y", "1wk": "10y"}
+			r = requests.get(f"https://query1.finance.yahoo.com/v8/finance/chart/{base}?range={range_map.get(interval,'1y')}&interval={interval}", timeout=12)
+			r.raise_for_status()
+			d = r.json() or {}
+			result = (((d.get("chart") or {}).get("result") or [None])[0]) or {}
+			ts = result.get("timestamp") or []
+			quote = (((result.get("indicators") or {}).get("quote") or [None])[0]) or {}
+			opens = quote.get("open") or []
+			highs = quote.get("high") or []
+			lows = quote.get("low") or []
+			closes = quote.get("close") or []
+			vols = quote.get("volume") or []
+			for i in range(min(len(ts), len(opens), len(highs), len(lows), len(closes))):
+				o = float(opens[i] or 0.0)
+				c = float(closes[i] or o)
+				h = float(highs[i] or max(o, c))
+				l = float(lows[i] or min(o, c))
+				v = float((vols[i] if i < len(vols) else 0.0) or 0.0)
+				hist_rows.append((int(ts[i]), o, c, h, l, v))
+		except Exception:
+			hist_rows = []
+		out = []
+		if not hist_rows:
+			now = int(time.time())
+			return [[now, "1", "1", "1", "1", "0", "0"]]
+		for ts, o, c, h, l, v in hist_rows[-1200:]:
+			out.append([ts, str(o), str(c), str(h), str(l), str(v), str(v)])
+		return out
+
+market = Market(url='https://query1.finance.yahoo.com')
 import time
 """
 <------------
@@ -243,16 +306,16 @@ except:
 tf_choices = ['1hour', '2hour', '4hour', '8hour', '12hour', '1day', '1week']
 tf_minutes = [60, 120, 240, 480, 720, 1440, 10080]
 # --- GUI HUB INPUT (NO PROMPTS) ---
-# Usage: python pt_trainer.py BTC [reprocess_yes|reprocess_no]
-_arg_coin = "BTC"
+# Usage: python pt_trainer.py AAPL [reprocess_yes|reprocess_no]
+_arg_coin = "AAPL"
 
 try:
 	if len(sys.argv) > 1 and str(sys.argv[1]).strip():
 		_arg_coin = str(sys.argv[1]).strip().upper()
 except Exception:
-	_arg_coin = "BTC"
+	_arg_coin = "AAPL"
 
-coin_choice = _arg_coin + '-USDT'
+coin_choice = _arg_coin
 
 restart_processing = "yes"
 
