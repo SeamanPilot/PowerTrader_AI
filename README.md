@@ -193,3 +193,37 @@ PowerTrader AI is released under the **Apache 2.0** license.
 ---
 
 IMPORTANT: This software places real trades automatically. You are responsible for everything it does to your money and your account. Keep your API keys private. I am not giving financial advice. I am not responsible for any losses incurred or any security breaches to your computer (the code is entirely open source and can be confirmed non-malicious). You are fully responsible for doing your own due diligence to learn and understand this trading system and to use it properly. You are fully responsible for all of your money and all of the bot's actions, and any gains or losses.
+
+---
+
+## Stock Scalping Mode (Alpaca)
+
+This repo now includes `pt_stock_scalper.py`, a stock-market scalping bot that reuses the same simple memory-based AI concept in a short-term (1-minute) workflow.
+
+### What it does
+- Pulls **1-minute stock bars** from Alpaca market data.
+- Builds a nearest-neighbor memory of return patterns.
+- Predicts next-candle edge and opens a **long scalp** when edge + momentum align.
+- Exits quickly using scalp risk rules (take-profit, stop-loss, max hold, prediction flip).
+
+### Setup
+1. Install dependencies:
+   - `python -m pip install -r requirements.txt`
+2. Add Alpaca paper credentials as env vars:
+   - `ALPACA_API_KEY`
+   - `ALPACA_SECRET_KEY`
+3. Run:
+   - `python pt_stock_scalper.py`
+
+### Optional tuning env vars
+- `SCALPER_SYMBOLS` (default `AAPL,MSFT,NVDA,TSLA,AMD`)
+- `SCALPER_NOTIONAL_USD` (default `150`)
+- `SCALPER_LOOKBACK` (default `12`)
+- `SCALPER_NEIGHBORS` (default `25`)
+- `SCALPER_MIN_EDGE_PCT` (default `0.15`)
+- `SCALPER_TAKE_PROFIT_PCT` (default `0.35`)
+- `SCALPER_STOP_LOSS_PCT` (default `0.25`)
+- `SCALPER_MAX_HOLD_MIN` (default `12`)
+- `SCALPER_LOOP_SLEEP_SEC` (default `20`)
+
+> Recommended: start on Alpaca paper trading and validate behavior before any real-money deployment.
