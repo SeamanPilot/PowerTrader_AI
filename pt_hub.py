@@ -307,6 +307,8 @@ DEFAULT_SETTINGS = {
     "main_neural_dir": "",
     "coins": ["BTC", "ETH", "XRP", "BNB", "DOGE"],
     "trade_start_level": 3,  # trade starts when long signal >= this level (1..7)
+    "paper_trading": False,
+    "paper_starting_balance": 10000.0,
     "start_allocation_pct": 0.005,  # % of total account value for initial entry (min $0.50 per coin)
     "dca_multiplier": 2.0,  # DCA buy size = current value * this (2.0 => total scales ~3x per DCA)
     "dca_levels": [-2.5, -5.0, -10.0, -20.0, -30.0, -40.0, -50.0],  # Hard DCA triggers (percent PnL)
@@ -4484,6 +4486,8 @@ class PowerTraderHub(tk.Tk):
         main_dir_var = tk.StringVar(value=self.settings["main_neural_dir"])
         coins_var = tk.StringVar(value=",".join(self.settings["coins"]))
         trade_start_level_var = tk.StringVar(value=str(self.settings.get("trade_start_level", 3)))
+        paper_trading_var = tk.BooleanVar(value=bool(self.settings.get("paper_trading", DEFAULT_SETTINGS.get("paper_trading", False))))
+        paper_balance_var = tk.StringVar(value=str(self.settings.get("paper_starting_balance", DEFAULT_SETTINGS.get("paper_starting_balance", 10000.0))))
         start_alloc_pct_var = tk.StringVar(value=str(self.settings.get("start_allocation_pct", 0.005)))
         dca_mult_var = tk.StringVar(value=str(self.settings.get("dca_multiplier", 2.0)))
         _dca_levels = self.settings.get("dca_levels", DEFAULT_SETTINGS.get("dca_levels", []))
@@ -4514,6 +4518,13 @@ class PowerTraderHub(tk.Tk):
         add_row(r, "Main neural folder:", main_dir_var, browse="dir"); r += 1
         add_row(r, "Coins (comma):", coins_var); r += 1
         add_row(r, "Trade start level (1-7):", trade_start_level_var); r += 1
+
+        paper_row = ttk.Frame(frm)
+        paper_row.grid(row=r, column=1, columnspan=2, sticky="w", pady=6)
+        ttk.Checkbutton(paper_row, text="Paper trading mode (no real orders)", variable=paper_trading_var).pack(side="left")
+        r += 1
+
+        add_row(r, "Paper starting balance ($):", paper_balance_var); r += 1
 
         # Start allocation % (shows approx $/coin using the last known account value; always displays the $0.50 minimum)
         ttk.Label(frm, text="Start allocation %:").grid(row=r, column=0, sticky="w", padx=(0, 10), pady=6)
@@ -5197,6 +5208,9 @@ class PowerTraderHub(tk.Tk):
                 self.settings["main_neural_dir"] = main_dir_var.get().strip()
                 self.settings["coins"] = [c.strip().upper() for c in coins_var.get().split(",") if c.strip()]
                 self.settings["trade_start_level"] = max(1, min(int(float(trade_start_level_var.get().strip())), 7))
+                self.settings["paper_trading"] = bool(paper_trading_var.get())
+                pb = (paper_balance_var.get() or "").strip().replace("$", "").replace(",", "")
+                self.settings["paper_starting_balance"] = max(0.0, float(pb or 0.0))
 
                 sap = (start_alloc_pct_var.get() or "").strip().replace("%", "")
                 self.settings["start_allocation_pct"] = max(0.0, float(sap or 0.0))

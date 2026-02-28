@@ -88,11 +88,24 @@ class RobinhoodMarketData:
         return float(result["ask_inclusive_of_buy_spread"])
 
 
+def kucoin_current_ask(symbol: str) -> float:
+	ksym = str(symbol or "").upper().replace("-USD", "-USDT")
+	try:
+		data = market.get_ticker(ksym)
+		return float(data["bestAsk"])
+	except Exception:
+		return 1.0
+
+
 def robinhood_current_ask(symbol: str) -> float:
     """
     Returns Robinhood current BUY price (ask_inclusive_of_buy_spread) for symbols like 'BTC-USD'.
     Reads creds from r_key.txt and r_secret.txt in the same folder as this script.
     """
+    cfg = _load_gui_settings()
+    if bool(cfg.get("paper_trading", False)):
+        return kucoin_current_ask(symbol)
+
     global _RH_MD
     if _RH_MD is None:
         base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -157,20 +170,21 @@ _GUI_SETTINGS_PATH = os.environ.get("POWERTRADER_GUI_SETTINGS") or os.path.join(
 _gui_settings_cache = {
 	"mtime": None,
 	"coins": ['BTC', 'ETH', 'XRP', 'BNB', 'DOGE'],  # fallback defaults
+	"paper_trading": False,
 }
 
-def _load_gui_coins() -> list:
+def _load_gui_settings() -> dict:
 	"""
-	Reads gui_settings.json and returns settings["coins"] as an uppercased list.
+	Reads gui_settings.json and returns normalized runtime settings.
 	Caches by mtime so it is cheap to call frequently.
 	"""
 	try:
 		if not os.path.isfile(_GUI_SETTINGS_PATH):
-			return list(_gui_settings_cache["coins"])
+			return dict(_gui_settings_cache)
 
 		mtime = os.path.getmtime(_GUI_SETTINGS_PATH)
 		if _gui_settings_cache["mtime"] == mtime:
-			return list(_gui_settings_cache["coins"])
+			return dict(_gui_settings_cache)
 
 		with open(_GUI_SETTINGS_PATH, "r", encoding="utf-8") as f:
 			data = json.load(f) or {}
@@ -183,14 +197,17 @@ def _load_gui_coins() -> list:
 		if not coins:
 			coins = list(_gui_settings_cache["coins"])
 
+		paper_trading = bool(data.get("paper_trading", _gui_settings_cache.get("paper_trading", False)))
+
 		_gui_settings_cache["mtime"] = mtime
 		_gui_settings_cache["coins"] = coins
-		return list(coins)
+		_gui_settings_cache["paper_trading"] = paper_trading
+		return dict(_gui_settings_cache)
 	except Exception:
-		return list(_gui_settings_cache["coins"])
+		return dict(_gui_settings_cache)
 
 # Initial coin list (will be kept live via _sync_coins_from_settings())
-COIN_SYMBOLS = _load_gui_coins()
+COIN_SYMBOLS = list((_load_gui_settings().get("coins") or _gui_settings_cache["coins"]))
 CURRENT_COINS = list(COIN_SYMBOLS)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -327,7 +344,7 @@ def _sync_coins_from_settings():
 	"""
 	global CURRENT_COINS
 
-	new_list = _load_gui_coins()
+	new_list = _load_gui_settings().get("coins", [])
 	if new_list == CURRENT_COINS:
 		return
 

@@ -57,6 +57,17 @@ IMPORTANT: This software places real trades automatically. You are responsible f
 
 ---
 
+## Paper Trading Mode
+
+PowerTrader AI supports paper trading so you can run the full bot flow without placing real Robinhood orders.
+
+- In **Hub → Settings**, enable **Paper trading mode (no real orders)**.
+- Set **Paper starting balance ($)** to choose your simulated buying power.
+- Paper account state (buying power, holdings, filled orders) is persisted in `hub_data/paper_account.json`.
+- In paper mode, `pt_thinker.py` uses KuCoin ask pricing and does not require Robinhood credential files.
+
+---
+
 ## Step 1 — Install Python
 
 1. Go to **python.org** and download Python for Windows.
