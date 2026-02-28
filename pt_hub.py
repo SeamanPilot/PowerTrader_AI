@@ -305,7 +305,7 @@ class NeuralSignalTile(ttk.Frame):
 
 DEFAULT_SETTINGS = {
     "main_neural_dir": "",
-    "coins": ["BTC", "ETH", "XRP", "BNB", "DOGE"],
+    "coins": ["AAPL", "MSFT", "NVDA", "SPY", "TSLA"],
     "trade_start_level": 3,  # trade starts when long signal >= this level (1..7)
     "start_allocation_pct": 0.005,  # % of total account value for initial entry (min $0.50 per coin)
     "dca_multiplier": 2.0,  # DCA buy size = current value * this (2.0 => total scales ~3x per DCA)
