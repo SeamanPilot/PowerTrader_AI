@@ -5,3 +5,11 @@ colorama
 cryptography
 PyNaCl
 kucoin-python
+
+# Stock bot dependencies
+pandas
+numpy
+yfinance
+scikit-learn
+streamlit
+plotly

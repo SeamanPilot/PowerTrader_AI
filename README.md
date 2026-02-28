@@ -193,3 +193,39 @@ PowerTrader AI is released under the **Apache 2.0** license.
 ---
 
 IMPORTANT: This software places real trades automatically. You are responsible for everything it does to your money and your account. Keep your API keys private. I am not giving financial advice. I am not responsible for any losses incurred or any security breaches to your computer (the code is entirely open source and can be confirmed non-malicious). You are fully responsible for doing your own due diligence to learn and understand this trading system and to use it properly. You are fully responsible for all of your money and all of the bot's actions, and any gains or losses.
+
+---
+
+## New: Paper Trading Deep-Learning Stock Bot
+
+This repository now includes a complete stock-focused paper trading system with:
+
+- **Deep-learning forecast model** (MLP neural network) for next-candle return prediction.
+- **Multiple strategies** (SMA crossover, RSI mean reversion, breakout) combined in an ensemble signal.
+- **Automated paper trading engine** with position sizing and portfolio/equity tracking.
+- **Live interactive chart dashboard** (Streamlit + Plotly candlesticks + indicators).
+- **Universal broker API setup wizard** for paper mode and multiple real-broker configurations.
+
+### Quick Start
+
+1. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+2. Run setup wizard:
+   ```bash
+   python -m stockbot.wizard
+   ```
+3. Launch interactive dashboard:
+   ```bash
+   streamlit run run_stockbot.py
+   ```
+
+### Main Files
+
+- `stockbot/wizard.py` - broker/API setup wizard.
+- `stockbot/model.py` - deep-learning forecaster.
+- `stockbot/strategies.py` - multi-strategy signal framework.
+- `stockbot/trader.py` - automated paper-trading execution engine.
+- `stockbot/dashboard.py` - live charting + controls.
+- `stockbot/brokers.py` - broker abstraction + paper broker.
