@@ -124,6 +124,16 @@ In the Hub, open **Settings** and do this in order:
 7. Close the wizard and go back to the **Settings** screen.
 8. **NOW** click **Save** in Settings.
 
+### Optional: Paper Trading mode (Robinhood market data, simulated orders)
+
+In **Settings**, you can enable **Paper trading mode** to test the strategy without placing live Robinhood orders.
+
+- Turn on **Enable paper trading mode**
+- Set **Paper starting balance (USD)**
+- Start the bot normally (**Start All**)
+
+Paper mode keeps using the same strategy logic and writes trade/account history to `hub_data`, but order execution and balances are simulated locally.
+
 After saving, you will have two files in your PowerTrader AI folder:  
 `r_key.txt` and `r_secret.txt`  
 Keep them private.
