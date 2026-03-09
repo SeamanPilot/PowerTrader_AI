@@ -21,17 +21,25 @@ from matplotlib.patches import Rectangle
 from matplotlib.ticker import FuncFormatter
 from matplotlib.transforms import blended_transform_factory
 
-DARK_BG = "#070B10"
-DARK_BG2 = "#0B1220"
-DARK_PANEL = "#0E1626"
-DARK_PANEL2 = "#121C2F"
-DARK_BORDER = "#243044"
-DARK_FG = "#C7D1DB"
-DARK_MUTED = "#8B949E"
-DARK_ACCENT = "#00FF66"   
-DARK_ACCENT2 = "#00E5FF"   
-DARK_SELECT_BG = "#17324A"
-DARK_SELECT_FG = "#00FF66"
+DARK_BG = "#131722"
+DARK_BG2 = "#1E222D"
+DARK_PANEL = "#161A25"
+DARK_PANEL2 = "#222735"
+DARK_BORDER = "#2A2E39"
+DARK_FG = "#D1D4DC"
+DARK_MUTED = "#787B86"
+DARK_ACCENT = "#2962FF"
+DARK_ACCENT2 = "#8AB4FF"
+DARK_SELECT_BG = "#2A2E39"
+DARK_SELECT_FG = "#D1D4DC"
+
+TV_GREEN = "#22AB94"
+TV_RED = "#F23645"
+TV_BLUE = "#2962FF"
+TV_ORANGE = "#FF9800"
+TV_PURPLE = "#B388FF"
+TV_TEAL = "#26A69A"
+TV_YELLOW = "#FFD54F"
 
 
 @dataclass
@@ -135,8 +143,8 @@ class NeuralSignalTile(ttk.Frame):
         self._pad = 6
 
         self._base_fill = DARK_PANEL
-        self._long_fill = "blue"
-        self._short_fill = "orange"
+        self._long_fill = TV_BLUE
+        self._short_fill = TV_ORANGE
 
         self.title_lbl = ttk.Label(self, text=coin)
         self.title_lbl.pack(anchor="center")
@@ -696,9 +704,25 @@ class CandleChart(ttk.Frame):
         top = ttk.Frame(self)
         top.pack(fill="x", padx=6, pady=6)
 
-        ttk.Label(top, text=f"{coin} chart").pack(side="left")
+        ttk.Label(top, text=f"{coin} · POWERTRADER", foreground=DARK_ACCENT).pack(side="left")
 
-        ttk.Label(top, text="Timeframe:").pack(side="left", padx=(12, 4))
+        self._quick_tf_map = [("1H", "1h"), ("4H", "4h"), ("1D", "1d"), ("1W", "1w")]
+        self._quick_tf_buttons: Dict[str, ttk.Button] = {}
+
+        quick_tf_row = ttk.Frame(top)
+        quick_tf_row.pack(side="left", padx=(14, 6))
+
+        for lbl, tfv in self._quick_tf_map:
+            b = ttk.Button(
+                quick_tf_row,
+                text=lbl,
+                width=4,
+                command=lambda t=tfv: self._set_timeframe(t),
+            )
+            b.pack(side="left", padx=(0, 4))
+            self._quick_tf_buttons[tfv] = b
+
+        ttk.Label(top, text="Interval:").pack(side="left", padx=(6, 4))
         self.tf_combo = ttk.Combobox(
             top,
             textvariable=self.timeframe_var,
@@ -721,6 +745,7 @@ class CandleChart(ttk.Frame):
             def _do():
                 # Ask the hub to refresh charts on the next tick (single refresh)
                 try:
+                    self._refresh_quick_tf_highlight()
                     self.event_generate("<<TimeframeChanged>>", when="tail")
                 except Exception:
                     pass
@@ -799,7 +824,80 @@ class CandleChart(ttk.Frame):
 
 
         self._last_refresh = 0.0
+        self._hover_candles: List[dict] = []
+        self._hover_tf: str = self.timeframe_var.get().strip()
 
+        self._cross_v = self.ax.axvline(0, color=DARK_MUTED, linewidth=0.8, alpha=0.55, visible=False)
+        self._cross_h = self.ax.axhline(0, color=DARK_MUTED, linewidth=0.8, alpha=0.55, visible=False)
+        self._cross_ohlc = self.ax.text(
+            0.01,
+            0.99,
+            "",
+            transform=self.ax.transAxes,
+            ha="left",
+            va="top",
+            fontsize=8,
+            color=DARK_FG,
+            bbox=dict(facecolor=DARK_BG2, edgecolor=DARK_BORDER, boxstyle="round,pad=0.2", alpha=0.85),
+            visible=False,
+            zorder=30,
+        )
+        self.canvas.mpl_connect("motion_notify_event", self._on_chart_hover)
+        self.canvas.mpl_connect("axes_leave_event", self._on_chart_leave)
+        self._refresh_quick_tf_highlight()
+
+
+    def _set_timeframe(self, tf: str) -> None:
+        try:
+            self.timeframe_var.set(str(tf))
+            self._refresh_quick_tf_highlight()
+            self.event_generate("<<TimeframeChanged>>", when="tail")
+        except Exception:
+            pass
+
+    def _refresh_quick_tf_highlight(self) -> None:
+        current = self.timeframe_var.get().strip().lower()
+        for tfv, btn in self._quick_tf_buttons.items():
+            try:
+                btn.configure(style=("ChartTabSelected.TButton" if tfv == current else "ChartTab.TButton"))
+            except Exception:
+                pass
+
+    def _on_chart_hover(self, event) -> None:
+        if event is None or event.inaxes != self.ax:
+            return
+        if not self._hover_candles:
+            return
+        try:
+            x = int(round(float(event.xdata)))
+        except Exception:
+            return
+        if x < 0 or x >= len(self._hover_candles):
+            return
+
+        c = self._hover_candles[x]
+        o = float(c["open"]); h = float(c["high"]); l = float(c["low"]); cl = float(c["close"])
+        ts = int(c.get("ts") or 0)
+
+        self._cross_v.set_xdata([x, x])
+        self._cross_h.set_ydata([float(event.ydata), float(event.ydata)])
+        self._cross_v.set_visible(True)
+        self._cross_h.set_visible(True)
+        self._cross_ohlc.set_text(
+            f"{self.coin} {self._hover_tf.upper()}  {time.strftime('%Y-%m-%d %H:%M', time.localtime(ts))}\n"
+            f"O {o:.6f}   H {h:.6f}   L {l:.6f}   C {cl:.6f}"
+        )
+        self._cross_ohlc.set_visible(True)
+        self.canvas.draw_idle()
+
+    def _on_chart_leave(self, _event=None) -> None:
+        try:
+            self._cross_v.set_visible(False)
+            self._cross_h.set_visible(False)
+            self._cross_ohlc.set_visible(False)
+            self.canvas.draw_idle()
+        except Exception:
+            pass
 
     def _apply_dark_chart_style(self) -> None:
         """Apply dark styling (called on init and after every ax.clear())."""
@@ -872,6 +970,8 @@ class CandleChart(ttk.Frame):
 
 
         if not candles:
+            self._hover_candles = []
+            self._hover_tf = tf
             self.ax.set_title(f"{self.coin} ({tf}) - no candles", color=DARK_FG)
             self.canvas.draw_idle()
             return
@@ -883,6 +983,9 @@ class CandleChart(ttk.Frame):
             xs = list(range(len(candles)))
             self._xs = xs
 
+        self._hover_candles = candles
+        self._hover_tf = tf
+
         rects = []
         for i, c in enumerate(candles):
             o = float(c["open"])
@@ -891,7 +994,7 @@ class CandleChart(ttk.Frame):
             l = float(c["low"])
 
             up = cl >= o
-            candle_color = "green" if up else "red"
+            candle_color = TV_GREEN if up else TV_RED
 
             # wick
             self.ax.plot([i, i], [l, h], linewidth=1, color=candle_color)
@@ -933,13 +1036,13 @@ class CandleChart(ttk.Frame):
         # Overlay Neural levels (blue long, orange short)
         for lv in long_levels:
             try:
-                self.ax.axhline(y=float(lv), linewidth=1, color="blue", alpha=0.8)
+                self.ax.axhline(y=float(lv), linewidth=1, color=TV_BLUE, alpha=0.85)
             except Exception:
                 pass
 
         for lv in short_levels:
             try:
-                self.ax.axhline(y=float(lv), linewidth=1, color="orange", alpha=0.8)
+                self.ax.axhline(y=float(lv), linewidth=1, color=TV_ORANGE, alpha=0.85)
             except Exception:
                 pass
 
@@ -947,33 +1050,33 @@ class CandleChart(ttk.Frame):
         # Overlay Trailing PM line (sell) and next DCA line
         try:
             if trail_line is not None and float(trail_line) > 0:
-                self.ax.axhline(y=float(trail_line), linewidth=1.5, color="green", alpha=0.95)
+                self.ax.axhline(y=float(trail_line), linewidth=1.5, color=TV_GREEN, alpha=0.95)
         except Exception:
             pass
 
         try:
             if dca_line_price is not None and float(dca_line_price) > 0:
-                self.ax.axhline(y=float(dca_line_price), linewidth=1.5, color="red", alpha=0.95)
+                self.ax.axhline(y=float(dca_line_price), linewidth=1.5, color=TV_RED, alpha=0.95)
         except Exception:
             pass
 
         # Overlay avg cost basis (yellow)
         try:
             if avg_cost_basis is not None and float(avg_cost_basis) > 0:
-                self.ax.axhline(y=float(avg_cost_basis), linewidth=1.5, color="yellow", alpha=0.95)
+                self.ax.axhline(y=float(avg_cost_basis), linewidth=1.5, color=TV_YELLOW, alpha=0.95)
         except Exception:
             pass
 
         # Overlay current ask/bid prices
         try:
             if current_buy_price is not None and float(current_buy_price) > 0:
-                self.ax.axhline(y=float(current_buy_price), linewidth=1.5, color="purple", alpha=0.95)
+                self.ax.axhline(y=float(current_buy_price), linewidth=1.5, color=TV_PURPLE, alpha=0.95)
         except Exception:
             pass
 
         try:
             if current_sell_price is not None and float(current_sell_price) > 0:
-                self.ax.axhline(y=float(current_sell_price), linewidth=1.5, color="teal", alpha=0.95)
+                self.ax.axhline(y=float(current_sell_price), linewidth=1.5, color=TV_TEAL, alpha=0.95)
         except Exception:
             pass
 
@@ -1020,11 +1123,11 @@ class CandleChart(ttk.Frame):
                 )
 
             # Map to your terminology: Ask=buy line, Bid=sell line
-            _label_right(current_buy_price, "ASK", "purple")
-            _label_right(current_sell_price, "BID", "teal")
-            _label_right(avg_cost_basis, "AVG", "yellow")
-            _label_right(dca_line_price, "DCA", "red")
-            _label_right(trail_line, "SELL", "green")
+            _label_right(current_buy_price, "ASK", TV_PURPLE)
+            _label_right(current_sell_price, "BID", TV_TEAL)
+            _label_right(avg_cost_basis, "AVG", TV_YELLOW)
+            _label_right(dca_line_price, "DCA", TV_RED)
+            _label_right(trail_line, "SELL", TV_GREEN)
 
         except Exception:
             pass
@@ -1051,10 +1154,10 @@ class CandleChart(ttk.Frame):
 
                     if side == "buy":
                         label = "DCA" if tag == "DCA" else "BUY"
-                        color = "purple" if tag == "DCA" else "red"
+                        color = TV_PURPLE if tag == "DCA" else TV_RED
                     elif side == "sell":
                         label = "SELL"
-                        color = "green"
+                        color = TV_GREEN
                     else:
                         continue
 
@@ -1409,10 +1512,10 @@ class AccountValueChart(ttk.Frame):
 
                     if side == "buy":
                         action_label = "DCA" if tag == "DCA" else "BUY"
-                        color = "purple" if tag == "DCA" else "red"
+                        color = TV_PURPLE if tag == "DCA" else TV_RED
                     elif side == "sell":
                         action_label = "SELL"
-                        color = "green"
+                        color = TV_GREEN
                     else:
                         continue
 
@@ -1541,7 +1644,7 @@ class LogProc:
 class PowerTraderHub(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("PowerTrader - Hub")
+        self.title("PowerTrader Pro - Trading Workspace")
         self.geometry("1400x820")
 
         # Hard minimum window size so the UI can't be shrunk to a point where panes vanish.
@@ -1995,8 +2098,19 @@ class PowerTraderHub(tk.Tk):
 
 
     def _build_layout(self) -> None:
+        topbar = ttk.Frame(self, style="TFrame")
+        topbar.pack(fill="x", padx=8, pady=(8, 0))
+
+        ttk.Label(topbar, text="PowerTrader Pro", foreground=DARK_ACCENT, font=("TkDefaultFont", 11, "bold")).pack(side="left")
+        ttk.Separator(topbar, orient="vertical").pack(side="left", fill="y", padx=8)
+        ttk.Button(topbar, text="Watchlist", command=self.open_settings_dialog, style="ChartTab.TButton").pack(side="left", padx=(0, 4))
+        ttk.Button(topbar, text="Train", command=self.train_all_coins, style="ChartTab.TButton").pack(side="left", padx=(0, 4))
+        ttk.Button(topbar, text="Start", command=self.start_all_scripts, style="ChartTab.TButton").pack(side="left", padx=(0, 4))
+        ttk.Button(topbar, text="Stop", command=self.stop_all_scripts, style="ChartTab.TButton").pack(side="left", padx=(0, 4))
+        ttk.Label(topbar, text="TradingView-style workspace", foreground=DARK_MUTED).pack(side="right")
+
         outer = ttk.Panedwindow(self, orient="horizontal")
-        outer.pack(fill="both", expand=True)
+        outer.pack(fill="both", expand=True, padx=0, pady=(6, 0))
 
         # LEFT + RIGHT panes
         left = ttk.Frame(outer)
