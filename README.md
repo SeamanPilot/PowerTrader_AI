@@ -1,5 +1,7 @@
 # PowerTrader_AI
-Fully automated crypto trading powered by a custom price prediction AI and a structured/tiered DCA system.
+Fully automated stock trading powered by a custom price prediction AI and a structured/tiered DCA system.
+
+> Current codebase defaults are now configured for stock symbols (AAPL/MSFT/NVDA/AMZN/TSLA) and paper-trading-first operation.
 
 I have not checked any PowerTrader AI forks and cannot confirm or deny their legitimacy.
 
@@ -54,6 +56,17 @@ No coding knowledge needed.
 These instructions are Windows-based but PowerTrader AI *should* be able to run on any OS.
 
 IMPORTANT: This software places real trades automatically. You are responsible for everything it does to your money and your account. Keep your API keys private. I am not giving financial advice. I am not responsible for any losses incurred or any security breaches to your computer (the code is entirely open source and can be confirmed non-malicious). You are fully responsible for doing your own due diligence to learn and understand this trading system and to use it properly. You are fully responsible for all of your money and all of the bot's actions, and any gains or losses.
+
+---
+
+## Paper Trading Mode
+
+PowerTrader AI supports paper trading so you can run the full bot flow without placing real Robinhood orders.
+
+- In **Hub → Settings**, enable **Paper trading mode (no real orders)**.
+- Set **Paper starting balance ($)** to choose your simulated buying power.
+- Paper account state (buying power, holdings, filled orders) is persisted in `hub_data/paper_account.json`.
+- In paper mode, `pt_thinker.py` uses KuCoin ask pricing and does not require Robinhood credential files.
 
 ---
 

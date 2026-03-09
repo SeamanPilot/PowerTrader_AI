@@ -2,8 +2,6 @@ import os
 import time
 import random
 import requests
-from kucoin.client import Market
-market = Market(url='https://api.kucoin.com')
 import sys
 import datetime
 import traceback
@@ -19,6 +17,73 @@ import json
 import uuid
 
 from nacl.signing import SigningKey
+
+
+class Market:
+    def __init__(self, url=None):
+        self.url = url
+
+    @staticmethod
+    def _base_symbol(sym: str) -> str:
+        s = str(sym or "").upper().strip()
+        if "-" in s:
+            s = s.split("-", 1)[0]
+        return s
+
+    def get_ticker(self, symbol: str):
+        base = self._base_symbol(symbol)
+        px = 1.0
+        try:
+            r = requests.get(f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={base}", timeout=10)
+            r.raise_for_status()
+            data = r.json() or {}
+            res = (((data.get("quoteResponse") or {}).get("result") or [None])[0]) or {}
+            px = float(res.get("regularMarketPrice") or 1.0)
+        except Exception:
+            pass
+        return {"price": px, "bestAsk": px}
+
+    def get_kline(self, symbol: str, timeframe: str, startAt=None, endAt=None):
+        base = self._base_symbol(symbol)
+        interval_map = {
+            "1hour": "60m", "2hour": "60m", "4hour": "60m", "8hour": "60m", "12hour": "60m",
+            "1day": "1d", "1week": "1wk", "1min": "1m", "5min": "5m", "15min": "15m", "30min": "30m"
+        }
+        interval = interval_map.get(timeframe, "1d")
+        period = "3mo" if interval.endswith("m") else "2y"
+        hist_rows = []
+        try:
+            range_map = {"1m": "7d", "5m": "30d", "15m": "60d", "30m": "60d", "60m": "730d", "1d": "10y", "1wk": "10y"}
+            r = requests.get(f"https://query1.finance.yahoo.com/v8/finance/chart/{base}?range={range_map.get(interval,'1y')}&interval={interval}", timeout=12)
+            r.raise_for_status()
+            d = r.json() or {}
+            result = (((d.get("chart") or {}).get("result") or [None])[0]) or {}
+            ts = result.get("timestamp") or []
+            quote = (((result.get("indicators") or {}).get("quote") or [None])[0]) or {}
+            opens = quote.get("open") or []
+            highs = quote.get("high") or []
+            lows = quote.get("low") or []
+            closes = quote.get("close") or []
+            vols = quote.get("volume") or []
+            for i in range(min(len(ts), len(opens), len(highs), len(lows), len(closes))):
+                o = float(opens[i] or 0.0)
+                c = float(closes[i] or o)
+                h = float(highs[i] or max(o, c))
+                l = float(lows[i] or min(o, c))
+                v = float((vols[i] if i < len(vols) else 0.0) or 0.0)
+                hist_rows.append((int(ts[i]), o, c, h, l, v))
+        except Exception:
+            hist_rows = []
+        out = []
+        if not hist_rows:
+            now = int(time.time())
+            return [[now, "1", "1", "1", "1", "0", "0"]]
+        for ts, o, c, h, l, v in hist_rows[-1200:]:
+            out.append([ts, str(o), str(c), str(h), str(l), str(v), str(v)])
+        return out
+
+
+market = Market(url='https://query1.finance.yahoo.com')
 
 # -----------------------------
 # Robinhood market-data (current ASK), same source as rhcb.py trader:
@@ -88,11 +153,24 @@ class RobinhoodMarketData:
         return float(result["ask_inclusive_of_buy_spread"])
 
 
+def kucoin_current_ask(symbol: str) -> float:
+	ksym = str(symbol or "").upper().replace("-USD", "-USDT")
+	try:
+		data = market.get_ticker(ksym)
+		return float(data["bestAsk"])
+	except Exception:
+		return 1.0
+
+
 def robinhood_current_ask(symbol: str) -> float:
     """
     Returns Robinhood current BUY price (ask_inclusive_of_buy_spread) for symbols like 'BTC-USD'.
     Reads creds from r_key.txt and r_secret.txt in the same folder as this script.
     """
+    cfg = _load_gui_settings()
+    if bool(cfg.get("paper_trading", False)):
+        return kucoin_current_ask(symbol)
+
     global _RH_MD
     if _RH_MD is None:
         base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -156,21 +234,22 @@ _GUI_SETTINGS_PATH = os.environ.get("POWERTRADER_GUI_SETTINGS") or os.path.join(
 
 _gui_settings_cache = {
 	"mtime": None,
-	"coins": ['BTC', 'ETH', 'XRP', 'BNB', 'DOGE'],  # fallback defaults
+	"coins": ['AAPL', 'MSFT', 'NVDA', 'AMZN', 'TSLA'],  # fallback defaults
+	"paper_trading": False,
 }
 
-def _load_gui_coins() -> list:
+def _load_gui_settings() -> dict:
 	"""
-	Reads gui_settings.json and returns settings["coins"] as an uppercased list.
+	Reads gui_settings.json and returns normalized runtime settings.
 	Caches by mtime so it is cheap to call frequently.
 	"""
 	try:
 		if not os.path.isfile(_GUI_SETTINGS_PATH):
-			return list(_gui_settings_cache["coins"])
+			return dict(_gui_settings_cache)
 
 		mtime = os.path.getmtime(_GUI_SETTINGS_PATH)
 		if _gui_settings_cache["mtime"] == mtime:
-			return list(_gui_settings_cache["coins"])
+			return dict(_gui_settings_cache)
 
 		with open(_GUI_SETTINGS_PATH, "r", encoding="utf-8") as f:
 			data = json.load(f) or {}
@@ -183,22 +262,25 @@ def _load_gui_coins() -> list:
 		if not coins:
 			coins = list(_gui_settings_cache["coins"])
 
+		paper_trading = bool(data.get("paper_trading", _gui_settings_cache.get("paper_trading", False)))
+
 		_gui_settings_cache["mtime"] = mtime
 		_gui_settings_cache["coins"] = coins
-		return list(coins)
+		_gui_settings_cache["paper_trading"] = paper_trading
+		return dict(_gui_settings_cache)
 	except Exception:
-		return list(_gui_settings_cache["coins"])
+		return dict(_gui_settings_cache)
 
 # Initial coin list (will be kept live via _sync_coins_from_settings())
-COIN_SYMBOLS = _load_gui_coins()
+COIN_SYMBOLS = list((_load_gui_settings().get("coins") or _gui_settings_cache["coins"]))
 CURRENT_COINS = list(COIN_SYMBOLS)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 def coin_folder(sym: str) -> str:
 	sym = sym.upper()
-	# Your "main folder is BTC folder" convention:
-	return BASE_DIR if sym == 'BTC' else os.path.join(BASE_DIR, sym)
+	primary = CURRENT_COINS[0] if CURRENT_COINS else "AAPL"
+	return BASE_DIR if sym == primary else os.path.join(BASE_DIR, sym)
 
 
 # --- training freshness gate (mirrors pt_hub.py) ---
@@ -327,7 +409,7 @@ def _sync_coins_from_settings():
 	"""
 	global CURRENT_COINS
 
-	new_list = _load_gui_coins()
+	new_list = _load_gui_settings().get("coins", [])
 	if new_list == CURRENT_COINS:
 		return
 
