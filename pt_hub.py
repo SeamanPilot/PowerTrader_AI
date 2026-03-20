@@ -330,6 +330,8 @@ DEFAULT_SETTINGS = {
     "script_neural_runner2": "pt_thinker.py",
     "script_neural_trainer": "pt_trainer.py",
     "script_trader": "pt_trader.py",
+    "script_paper_trader": "pt_paper_trader.py",
+    "paper_initial_cash": 10_000.0,  # virtual starting balance for paper trading
     "auto_start_scripts": False,
 }
 
@@ -1577,6 +1579,12 @@ class PowerTraderHub(tk.Tk):
         self.pnl_ledger_path = os.path.join(self.hub_dir, "pnl_ledger.json")
         self.account_value_history_path = os.path.join(self.hub_dir, "account_value_history.jsonl")
 
+        # file paths written by pt_paper_trader.py
+        self.paper_trader_status_path = os.path.join(self.hub_dir, "paper_trader_status.json")
+        self.paper_trade_history_path = os.path.join(self.hub_dir, "paper_trade_history.jsonl")
+        self.paper_pnl_ledger_path = os.path.join(self.hub_dir, "paper_pnl_ledger.json")
+        self.paper_account_value_history_path = os.path.join(self.hub_dir, "paper_account_value_history.jsonl")
+
         # file written by pt_thinker.py (runner readiness gate used for Start All)
         self.runner_ready_path = os.path.join(self.hub_dir, "runner_ready.json")
 
@@ -1613,11 +1621,17 @@ class PowerTraderHub(tk.Tk):
             path=os.path.abspath(os.path.join(self.project_dir, self.settings["script_trader"]))
         )
 
+        self.proc_paper_trader = ProcInfo(
+            name="Paper Trader",
+            path=os.path.abspath(os.path.join(self.project_dir, self.settings.get("script_paper_trader", "pt_paper_trader.py")))
+        )
+
         self.proc_trainer_path = os.path.abspath(os.path.join(self.project_dir, self.settings["script_neural_trainer"]))
 
         # live log queues
         self.runner_log_q: "queue.Queue[str]" = queue.Queue()
         self.trader_log_q: "queue.Queue[str]" = queue.Queue()
+        self.paper_trader_log_q: "queue.Queue[str]" = queue.Queue()
 
         # trainers: coin -> LogProc
         self.trainers: Dict[str, LogProc] = {}
@@ -1967,6 +1981,9 @@ class PowerTraderHub(tk.Tk):
         m_scripts.add_separator()
         m_scripts.add_command(label="Start Trader", command=self.start_trader)
         m_scripts.add_command(label="Stop Trader", command=self.stop_trader)
+        m_scripts.add_separator()
+        m_scripts.add_command(label="Start Paper Trader", command=self.start_paper_trader)
+        m_scripts.add_command(label="Stop Paper Trader", command=self.stop_paper_trader)
         menubar.add_cascade(label="Scripts", menu=m_scripts)
 
         m_settings = tk.Menu(
@@ -2243,7 +2260,10 @@ class PowerTraderHub(tk.Tk):
         self.lbl_neural.pack(anchor="w", padx=6, pady=(0, 2))
 
         self.lbl_trader = ttk.Label(controls_left, text="Trader: stopped")
-        self.lbl_trader.pack(anchor="w", padx=6, pady=(0, 6))
+        self.lbl_trader.pack(anchor="w", padx=6, pady=(0, 2))
+
+        self.lbl_paper_trader = ttk.Label(controls_left, text="Paper Trader: stopped")
+        self.lbl_paper_trader.pack(anchor="w", padx=6, pady=(0, 6))
 
         self.lbl_last_status = ttk.Label(controls_left, text="Last status: N/A")
         self.lbl_last_status.pack(anchor="w", padx=6, pady=(0, 2))
@@ -2290,6 +2310,15 @@ class PowerTraderHub(tk.Tk):
             command=self.toggle_all_scripts,
         )
         self.btn_toggle_all.pack(side="left")
+
+        # Paper trader toggle button (independent of Start All)
+        self.btn_toggle_paper = ttk.Button(
+            start_all_row,
+            text="Start Paper",
+            width=BTN_W,
+            command=self._toggle_paper_trader,
+        )
+        self.btn_toggle_paper.pack(side="left", padx=(8, 0))
 
 
         # Account info (LEFT column, under status)
@@ -2495,6 +2524,28 @@ class PowerTraderHub(tk.Tk):
         self.trader_text.configure(yscrollcommand=trader_scroll.set)
         self.trader_text.pack(side="left", fill="both", expand=True)
         trader_scroll.pack(side="right", fill="y")
+
+        # Paper Trader tab
+        paper_trader_tab = ttk.Frame(self.logs_nb)
+        self.logs_nb.add(paper_trader_tab, text="Paper Trader")
+        self.paper_trader_text = tk.Text(
+            paper_trader_tab,
+            height=8,
+            wrap="none",
+            font=self._live_log_font,
+            bg=DARK_PANEL,
+            fg=DARK_FG,
+            insertbackground=DARK_FG,
+            selectbackground=DARK_SELECT_BG,
+            selectforeground=DARK_SELECT_FG,
+            highlightbackground=DARK_BORDER,
+            highlightcolor=DARK_ACCENT,
+        )
+
+        paper_trader_scroll = ttk.Scrollbar(paper_trader_tab, orient="vertical", command=self.paper_trader_text.yview)
+        self.paper_trader_text.configure(yscrollcommand=paper_trader_scroll.set)
+        self.paper_trader_text.pack(side="left", fill="both", expand=True)
+        paper_trader_scroll.pack(side="right", fill="y")
 
         # Trainers tab (multi-coin)
         trainer_tab = ttk.Frame(self.logs_nb)
@@ -3130,6 +3181,20 @@ class PowerTraderHub(tk.Tk):
     def stop_trader(self) -> None:
         self._stop_process(self.proc_trader)
 
+    def start_paper_trader(self) -> None:
+        self._start_process(self.proc_paper_trader, log_q=self.paper_trader_log_q, prefix="[PAPER] ")
+
+    def stop_paper_trader(self) -> None:
+        self._stop_process(self.proc_paper_trader)
+
+    def _toggle_paper_trader(self) -> None:
+        """Toggle paper trader on/off (independent of the neural runner)."""
+        running = bool(self.proc_paper_trader.proc and self.proc_paper_trader.proc.poll() is None)
+        if running:
+            self.stop_paper_trader()
+        else:
+            self.start_paper_trader()
+
     def toggle_all_scripts(self) -> None:
         neural_running = bool(self.proc_neural.proc and self.proc_neural.proc.poll() is None)
         trader_running = bool(self.proc_trader.proc and self.proc_trader.proc.poll() is None)
@@ -3422,6 +3487,7 @@ class PowerTraderHub(tk.Tk):
 
         self.stop_neural()
         self.stop_trader()
+        self.stop_paper_trader()
 
         # Also reset the runner-ready gate file (best-effort)
         try:
@@ -3497,9 +3563,18 @@ class PowerTraderHub(tk.Tk):
         # process labels
         neural_running = bool(self.proc_neural.proc and self.proc_neural.proc.poll() is None)
         trader_running = bool(self.proc_trader.proc and self.proc_trader.proc.poll() is None)
+        paper_trader_running = bool(self.proc_paper_trader.proc and self.proc_paper_trader.proc.poll() is None)
 
         self.lbl_neural.config(text=f"Neural: {'running' if neural_running else 'stopped'}")
         self.lbl_trader.config(text=f"Trader: {'running' if trader_running else 'stopped'}")
+        try:
+            self.lbl_paper_trader.config(text=f"Paper Trader: {'running' if paper_trader_running else 'stopped'}")
+        except Exception:
+            pass
+        try:
+            self.btn_toggle_paper.config(text="Stop Paper" if paper_trader_running else "Start Paper")
+        except Exception:
+            pass
 
         # Start All is now a toggle (Start/Stop)
         try:
@@ -3640,6 +3715,7 @@ class PowerTraderHub(tk.Tk):
         # drain logs into panes
         self._drain_queue_to_text(self.runner_log_q, self.runner_text)
         self._drain_queue_to_text(self.trader_log_q, self.trader_text)
+        self._drain_queue_to_text(self.paper_trader_log_q, self.paper_trader_text)
 
         # trainer logs: show selected trainer output
         try:
@@ -4504,6 +4580,8 @@ class PowerTraderHub(tk.Tk):
         neural_script_var = tk.StringVar(value=self.settings["script_neural_runner2"])
         trainer_script_var = tk.StringVar(value=self.settings.get("script_neural_trainer", "pt_trainer.py"))
         trader_script_var = tk.StringVar(value=self.settings["script_trader"])
+        paper_trader_script_var = tk.StringVar(value=self.settings.get("script_paper_trader", "pt_paper_trader.py"))
+        paper_initial_cash_var = tk.StringVar(value=str(self.settings.get("paper_initial_cash", 10_000.0)))
 
         ui_refresh_var = tk.StringVar(value=str(self.settings["ui_refresh_seconds"]))
         chart_refresh_var = tk.StringVar(value=str(self.settings["chart_refresh_seconds"]))
@@ -4579,6 +4657,8 @@ class PowerTraderHub(tk.Tk):
         add_row(r, "pt_thinker.py path:", neural_script_var); r += 1
         add_row(r, "pt_trainer.py path:", trainer_script_var); r += 1
         add_row(r, "pt_trader.py path:", trader_script_var); r += 1
+        add_row(r, "pt_paper_trader.py path:", paper_trader_script_var); r += 1
+        add_row(r, "Paper trading initial cash ($):", paper_initial_cash_var); r += 1
 
         # --- Robinhood API setup (writes r_key.txt + r_secret.txt used by pt_trader.py) ---
         def _api_paths() -> Tuple[str, str]:
@@ -5266,6 +5346,11 @@ class PowerTraderHub(tk.Tk):
                 self.settings["script_neural_runner2"] = neural_script_var.get().strip()
                 self.settings["script_neural_trainer"] = trainer_script_var.get().strip()
                 self.settings["script_trader"] = trader_script_var.get().strip()
+                self.settings["script_paper_trader"] = paper_trader_script_var.get().strip()
+                try:
+                    self.settings["paper_initial_cash"] = float(paper_initial_cash_var.get().strip())
+                except Exception:
+                    pass
 
                 self.settings["ui_refresh_seconds"] = float(ui_refresh_var.get().strip())
                 self.settings["chart_refresh_seconds"] = float(chart_refresh_var.get().strip())
