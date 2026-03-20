@@ -1,0 +1,30 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Secrets / API keys
+r_key.txt
+r_secret.txt
+
+# Hub data (runtime state; not tracked by default)
+hub_data/
+
+# Stockbot config (user-specific)
+stockbot_config.json
+
+# GUI settings (user-specific)
+gui_settings.json
+
+# Per-coin current price files
+*_current_price.txt
